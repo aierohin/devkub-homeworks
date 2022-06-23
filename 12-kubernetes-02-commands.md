@@ -1,38 +1,111 @@
 # Домашнее задание к занятию "12.2 Команды для работы с Kubernetes"
-Кластер — это сложная система, с которой крайне редко работает один человек. Квалифицированный devops умеет наладить работу всей команды, занимающейся каким-либо сервисом.
-После знакомства с кластером вас попросили выдать доступ нескольким разработчикам. Помимо этого требуется служебный аккаунт для просмотра логов.
-
 ## Задание 1: Запуск пода из образа в деплойменте
-Для начала следует разобраться с прямым запуском приложений из консоли. Такой подход поможет быстро развернуть инструменты отладки в кластере. Требуется запустить деплоймент на основе образа из hello world уже через deployment. Сразу стоит запустить 2 копии приложения (replicas=2). 
-
-Требования:
- * пример из hello world запущен в качестве deployment
- * количество реплик в deployment установлено в 2
- * наличие deployment можно проверить командой kubectl get deployment
- * наличие подов можно проверить командой kubectl get pods
-
+```
+root@erohin-VirtualBox:~# kubectl create deployment hello-node --image=k8s.gcr.io/echoserver:1.4 --replicas=2
+deployment.apps/hello-node created
+root@erohin-VirtualBox:~# kubectl get deployment
+NAME         READY   UP-TO-DATE   AVAILABLE   AGE
+hello-node   2/2     2            2           10s
+root@erohin-VirtualBox:~# kubectl get pods
+NAME                          READY   STATUS    RESTARTS   AGE
+hello-node-6b89d599b9-tv5rj   1/1     Running   0          28s
+hello-node-6b89d599b9-vwgnv   1/1     Running   0          28s
+```
 
 ## Задание 2: Просмотр логов для разработки
-Разработчикам крайне важно получать обратную связь от штатно работающего приложения и, еще важнее, об ошибках в его работе. 
-Требуется создать пользователя и выдать ему доступ на чтение конфигурации и логов подов в app-namespace.
+```
+root@erohin-VirtualBox:/cert# kubectl config view 
+apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority: /root/.minikube/ca.crt
+    extensions:
+    - extension:
+        last-update: Fri, 17 Jun 2022 22:56:36 CEST
+        provider: minikube.sigs.k8s.io
+        version: v1.25.2
+      name: cluster_info
+    server: https://10.0.2.15:8443
+  name: minikube
+contexts:
+- context:
+    cluster: minikube
+    extensions:
+    - extension:
+        last-update: Fri, 17 Jun 2022 22:56:36 CEST
+        provider: minikube.sigs.k8s.io
+        version: v1.25.2
+      name: context_info
+    namespace: default
+    user: minikube
+  name: minikube
+- context:
+    cluster: minikube
+    namespace: app-namespace
+    user: user1
+  name: user1-context
+current-context: user1-context
+kind: Config
+preferences: {}
+users:
+- name: minikube
+  user:
+    client-certificate: /root/.minikube/profiles/minikube/client.crt
+    client-key: /root/.minikube/profiles/minikube/client.key
+- name: user1
+  user:
+    client-certificate: /cert/user1.crt
+    client-key: /cert/user1.key
 
-Требования: 
- * создан новый токен доступа для пользователя
- * пользователь прописан в локальный конфиг (~/.kube/config, блок users)
- * пользователь может просматривать логи подов и их конфигурацию (kubectl logs pod <pod_id>, kubectl describe pod <pod_id>)
+root@erohin-VirtualBox:/cert# kubectl config use-context user1-context 
+Switched to context "user1-context".
+root@erohin-VirtualBox:/cert# kubectl auth can-i list pods
+no
+root@erohin-VirtualBox:/cert# kubectl auth can-i get pods
+no
+root@erohin-VirtualBox:/cert# kubectl auth can-i describe pods
+Warning: verb 'describe' is not a known verb
+yes
+root@erohin-VirtualBox:/cert# kubectl auth can-i logs pods
+Warning: verb 'logs' is not a known verb
+yes
+root@erohin-VirtualBox:/cert# kubectl auth can-i watch pods
+no
 
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  namespace: app-namespace
+  name: pod-reader
+rules:
+- apiGroups: [""]
+  resources: [ pods, pods/log ]
+  verbs: [ logs, describe ]
+
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: read-pods
+  namespace: app-namespace
+subjects:
+- kind: User
+  name: user1
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: pod-reader
+  apiGroup: rbac.authorization.k8s.io
+```
 
 ## Задание 3: Изменение количества реплик 
-Поработав с приложением, вы получили запрос на увеличение количества реплик приложения для нагрузки. Необходимо изменить запущенный deployment, увеличив количество реплик до 5. Посмотрите статус запущенных подов после увеличения реплик. 
-
-Требования:
- * в deployment из задания 1 изменено количество реплик на 5
- * проверить что все поды перешли в статус running (kubectl get pods)
-
----
-
-### Как оформить ДЗ?
-
-Выполненное домашнее задание пришлите ссылкой на .md-файл в вашем репозитории.
-
----
+```
+root@erohin-VirtualBox:~# kubectl scale deployment hello-node --replicas=5
+deployment.apps/hello-node scaled
+root@erohin-VirtualBox:~# kubectl get pods
+NAME                          READY   STATUS    RESTARTS   AGE
+hello-node-6b89d599b9-h4774   1/1     Running   0          4s
+hello-node-6b89d599b9-pm79t   1/1     Running   0          4s
+hello-node-6b89d599b9-qjqwx   1/1     Running   0          4s
+hello-node-6b89d599b9-tv5rj   1/1     Running   0          3m43s
+hello-node-6b89d599b9-vwgnv   1/1     Running   0          3m43s
+```
